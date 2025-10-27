@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sahayak — AI Governance Assistant (Demo)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #1c1e21; }
+        .container { max-width: 700px; margin: 30px auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+        h1 { text-align: center; color: #1877f2; font-size: 1.8em; display: flex; align-items: center; justify-content: center; gap: 10px;}
+        label { font-weight: 600; color: #606770; }
+        .input-area { position: relative; }
+        textarea { width: 100%; height: 80px; padding: 12px 50px 12px 12px; margin-top: 8px; border-radius: 8px; border: 1px solid #dddfe2; font-size: 16px; box-sizing: border-box; resize: vertical; }
+        button#find-schemes-btn { background-color: #1877f2; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 10px; width: 100%; transition: background-color 0.2s; }
+        button#find-schemes-btn:hover { background-color: #166fe5; }
+        
+        #mic-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 5px;}
+        #mic-btn svg { width: 24px; height: 24px; fill: #606770; }
+        #mic-btn.recording svg { fill: #d93025; }
+
+        .scheme-card { background: #fff; border: 1px solid #e1e8ed; padding: 20px; border-radius: 8px; margin-top: 20px; position: relative;}
+        .scheme-card h3 { margin-top: 0; color: #050505; border-bottom: 1px solid #e9ebee; padding-bottom: 10px; font-size: 1.2em; }
+        .scheme-card h4 { color: #65676b; margin-top: 20px; margin-bottom: 8px; font-size: 1em; text-transform: uppercase; letter-spacing: 0.5px;}
+        .scheme-card ul, .scheme-card ol { padding-left: 20px; }
+        
+        .tts-btn { position: absolute; top: 15px; right: 15px; background: #e7f3ff; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .tts-btn svg { width: 20px; height: 20px; fill: #1877f2; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 Sahayak AI Assistant</h1>
+        <label for="situation">Describe your situation (or click the mic to speak):</label>
+        <div class="input-area">
+            <textarea id="situation" placeholder="e.g., I am a farmer and need a loan for my crops..."></textarea>
+            <button id="mic-btn">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"></path></svg>
+            </button>
+        </div>
+        <button id="find-schemes-btn" onclick="getScheme()">Find Schemes</button>
+        <div id="response-area"></div>
+    </div>
+
+    <script>
+        // --- TTS State Management ---
+        let currentUtterance = null;
+        const speakerSVG = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path></svg>`;
+        const pauseSVG = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>`;
+
+        function formatApplicationProcess(processText) { /* Unchanged */ }
+
+        // --- TTS Controller ---
+        function handleTTS(scheme, button) {
+            if (speechSynthesis.speaking && !speechSynthesis.paused) {
+                speechSynthesis.pause();
+                button.innerHTML = speakerSVG;
+            } else if (speechSynthesis.paused) {
+                speechSynthesis.resume();
+                button.innerHTML = pauseSVG;
+            } else {
+                speechSynthesis.cancel(); // Stop any previous speech
+                const textToSpeak = `
+                    Scheme: ${scheme.name}.
+                    Description: ${scheme.description}.
+                    Eligibility Criteria: ${scheme.eligibility_criteria.join(', ')}.
+                    Documents Required: ${scheme.documents_required.join(', ')}.
+                    How to Apply: ${scheme.application_process.replace(/\*/g, '')}
+                `;
+                currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
+                currentUtterance.lang = 'en-IN';
+                currentUtterance.onend = () => {
+                    button.innerHTML = speakerSVG;
+                };
+                speechSynthesis.speak(currentUtterance);
+                button.innerHTML = pauseSVG;
+            }
+        }
+
+        // --- STT Logic ---
+        const micBtn = document.getElementById('mic-btn');
+        const situationText = document.getElementById('situation');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-IN';
+            micBtn.addEventListener('click', () => {
+                if (micBtn.classList.contains('recording')) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            });
+            recognition.onstart = () => micBtn.classList.add('recording');
+            recognition.onend = () => micBtn.classList.remove('recording');
+            recognition.onresult = (event) => { situationText.value = event.results[event.resultIndex][0].transcript; };
+        } else {
+            micBtn.style.display = 'none';
+        }
+
+        async function getScheme() {
+            // Stop any ongoing speech when a new search starts
+            speechSynthesis.cancel();
+            
+            const situation = situationText.value.trim();
+            const responseArea = document.getElementById('response-area');
+            if (!situation) { alert("Please describe your situation!"); return; }
+
+            responseArea.innerHTML = "<p>⏳ Sahayak-AI is analyzing your situation...</p>";
+            try {
+                const res = await fetch("/get_scheme", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ situation }), });
+                const data = await res.json();
+                responseArea.innerHTML = ""; 
+
+                if (data.schemes && data.schemes.length > 0) {
+                    data.schemes.forEach((scheme, index) => {
+                        const card = document.createElement('div');
+                        card.className = 'scheme-card';
+                        
+                        // Create the TTS button dynamically
+                        const ttsButton = document.createElement('button');
+                        ttsButton.className = 'tts-btn';
+                        ttsButton.innerHTML = speakerSVG;
+                        ttsButton.onclick = () => handleTTS(scheme, ttsButton);
+
+                        const eligibilityList = '<ul>' + (scheme.eligibility_criteria || []).map(item => `<li>${item}</li>`).join('') + '</ul>';
+                        const documentsList = '<ul>' + (scheme.documents_required || []).map(item => `<li>${item}</li>`).join('') + '</ul>';
+                        
+                        card.innerHTML = `
+                            <h3>${scheme.name}</h3>
+                            <p>${scheme.description}</p>
+                            <h4>Eligibility Criteria</h4>
+                            ${eligibilityList}
+                            <h4>Documents Required</h4>
+                            ${documentsList}
+                            <h4>How to Apply</h4>
+                            <p>${scheme.application_process}</p>
+                        `;
+                        card.prepend(ttsButton); // Add the button to the card
+                        responseArea.appendChild(card);
+                    });
+                } else {
+                    responseArea.innerHTML = `<div class="fallback-msg"><p>I couldn't find a suitable scheme based on your situation.</p></div>`;
+                }
+            } catch (error) { responseArea.innerText = "⚠️ Error connecting to the AI. Please try again."; }
+        }
+    </script>
+</body>
+</html>
